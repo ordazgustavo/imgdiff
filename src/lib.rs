@@ -4,16 +4,20 @@ pub fn diff(a: RgbImage, b: RgbImage) -> RgbImage {
     let size_a = a.dimensions();
     let size_b = b.dimensions();
 
-    let (x, y) = size_a.max(size_b);
+    let mut c: RgbImage = if size_a != size_b {
+        let (x, y) = size_a.max(size_b);
 
-    let mut c: RgbImage = ImageBuffer::from_fn(x, y, |x, y| {
-        // Fill excess size with red pixels
-        if x >= size_a.0 || y >= size_a.1 || x >= size_b.0 || y >= size_b.1 {
-            Rgb([255, 0, 0])
-        } else {
-            Rgb([255, 255, 255])
-        }
-    });
+        ImageBuffer::from_fn(x, y, |x, y| {
+            // Fill excess size with red pixels
+            if x >= size_a.0 || y >= size_a.1 || x >= size_b.0 || y >= size_b.1 {
+                Rgb([255, 0, 0])
+            } else {
+                Rgb([255, 255, 255])
+            }
+        })
+    } else {
+        ImageBuffer::from_pixel(size_a.0, size_a.1, Rgb([255, 255, 255]))
+    };
 
     a.enumerate_pixels()
         .zip(b.enumerate_pixels())
@@ -31,10 +35,29 @@ mod tests {
 
     type Pix = &'static [&'static [image::Rgb<u8>]];
 
-    const WHITE: Rgb<u8> = Rgb([255, 255, 255]);
-    const RED: Rgb<u8> = Rgb([255, 0, 0]);
-    const GREEN: Rgb<u8> = Rgb([0, 255, 0]);
-    const BLUE: Rgb<u8> = Rgb([0, 0, 255]);
+    const W: Rgb<u8> = Rgb([255, 255, 255]);
+    const R: Rgb<u8> = Rgb([255, 0, 0]);
+    const G: Rgb<u8> = Rgb([0, 255, 0]);
+    const B: Rgb<u8> = Rgb([0, 0, 255]);
+
+    const BASE_PATTERN: [Rgb<u8>; 3] = [R, G, B];
+
+    /// Give a size, generate an image by cycling through an `[R, G, B]` array
+    ///
+    /// # Example
+    ///
+    /// `gen_base(3, 3)`
+    ///
+    /// ```
+    /// R G B
+    /// R G B
+    /// R G B
+    /// ```
+    fn gen_base(x: u32, y: u32) -> RgbImage {
+        let mut pixels = BASE_PATTERN.iter().cycle();
+
+        ImageBuffer::from_fn(x, y, |_, _| *pixels.next().unwrap())
+    }
 
     fn gen_img(pixels: Pix) -> RgbImage {
         let (x, y) = (pixels[0].len() as u32, pixels.len() as u32);
@@ -44,134 +67,120 @@ mod tests {
 
     #[test]
     fn are_equal() {
-        let a: Pix = &[&[RED, GREEN, BLUE]];
-        let b: Pix = &[&[RED, GREEN, BLUE]];
+        let a = gen_base(3, 1);
+        let b = gen_base(3, 1);
 
-        let pixels = diff(gen_img(a), gen_img(b));
+        let pixels = diff(a, b);
 
-        // expected
-        let expected: Pix = &[&[WHITE, WHITE, WHITE]];
+        let expected: Pix = &[&[W, W, W]];
 
         assert_eq!(gen_img(expected), pixels);
     }
 
     #[test]
     fn just_one_pixel() {
-        let a: Pix = &[&[RED, GREEN, BLUE]];
-        let b: Pix = &[&[GREEN, GREEN, BLUE]];
+        let a = gen_base(3, 1);
+        let b: Pix = &[&[G, G, B]];
 
-        let pixels = diff(gen_img(a), gen_img(b));
+        let pixels = diff(a, gen_img(b));
 
-        // expected
-        let expected: Pix = &[&[RED, WHITE, WHITE]];
+        let expected: Pix = &[&[R, W, W]];
 
         assert_eq!(gen_img(expected), pixels);
     }
 
     #[test]
     fn last_two_pixels() {
-        let a: Pix = &[&[RED, GREEN, BLUE]];
-        let b: Pix = &[&[RED, GREEN, GREEN]];
+        let a = gen_base(3, 1);
+        let b: Pix = &[&[R, G, G]];
 
-        let pixels = diff(gen_img(a), gen_img(b));
+        let pixels = diff(a, gen_img(b));
 
-        // expected
-        let expected: Pix = &[&[WHITE, WHITE, RED]];
+        let expected: Pix = &[&[W, W, R]];
 
         assert_eq!(gen_img(expected), pixels);
     }
 
     #[test]
     fn b_x_bigger() {
-        let a: Pix = &[&[RED, GREEN, BLUE]];
-        let b: Pix = &[&[RED, GREEN, BLUE, BLUE]];
+        let a = gen_base(3, 1);
+        let b: Pix = &[&[R, G, B, B]];
 
-        let pixels = diff(gen_img(a), gen_img(b));
+        let pixels = diff(a, gen_img(b));
 
-        // expected
-        let expected: Pix = &[&[WHITE, WHITE, WHITE, RED]];
+        let expected: Pix = &[&[W, W, W, R]];
 
         assert_eq!(gen_img(expected), pixels);
     }
 
     #[test]
     fn b_y_bigger() {
-        let a: Pix = &[&[RED, GREEN, BLUE]];
-        let b: Pix = &[&[RED, GREEN, BLUE], &[RED, GREEN, BLUE]];
+        let a = gen_base(3, 1);
+        let b: Pix = &[&[R, G, B], &[R, G, B]];
 
-        let pixels = diff(gen_img(a), gen_img(b));
+        let pixels = diff(a, gen_img(b));
 
-        // expected
-        let expected: Pix = &[&[WHITE, WHITE, WHITE], &[RED, RED, RED]];
+        let expected: Pix = &[&[W, W, W], &[R, R, R]];
 
         assert_eq!(gen_img(expected), pixels);
     }
 
     #[test]
     fn b_xy_bigger() {
-        let a: Pix = &[&[RED, GREEN, BLUE]];
-        let b: Pix = &[&[RED, GREEN, BLUE, BLUE], &[RED, GREEN, BLUE, BLUE]];
+        let a = gen_base(3, 1);
+        let b: Pix = &[&[R, G, B, B], &[R, G, B, B]];
 
-        let pixels = diff(gen_img(a), gen_img(b));
+        let pixels = diff(a, gen_img(b));
 
-        // expected
-        let expected: Pix = &[&[WHITE, WHITE, WHITE, RED], &[RED, RED, RED, RED]];
+        let expected: Pix = &[&[W, W, W, R], &[R, R, R, R]];
 
         assert_eq!(gen_img(expected), pixels);
     }
 
     #[test]
     fn a_x_bigger() {
-        let a: Pix = &[&[RED, GREEN, BLUE, BLUE]];
-        let b: Pix = &[&[RED, GREEN, BLUE]];
+        let a = gen_base(4, 1);
+        let b: Pix = &[&[R, G, B]];
 
-        let pixels = diff(gen_img(a), gen_img(b));
+        let pixels = diff(a, gen_img(b));
 
-        // expected
-        let expected: Pix = &[&[WHITE, WHITE, WHITE, RED]];
+        let expected: Pix = &[&[W, W, W, R]];
 
         assert_eq!(gen_img(expected), pixels);
     }
 
     #[test]
     fn a_y_bigger() {
-        let a: Pix = &[&[RED, GREEN, BLUE], &[RED, GREEN, BLUE]];
-        let b: Pix = &[&[RED, GREEN, BLUE]];
+        let a = gen_base(3, 2);
+        let b: Pix = &[&[R, G, B]];
 
-        let pixels = diff(gen_img(a), gen_img(b));
+        let pixels = diff(a, gen_img(b));
 
-        // expected
-        let expected: Pix = &[&[WHITE, WHITE, WHITE], &[RED, RED, RED]];
+        let expected: Pix = &[&[W, W, W], &[R, R, R]];
 
         assert_eq!(gen_img(expected), pixels);
     }
 
     #[test]
     fn a_xy_bigger() {
-        let a: Pix = &[&[RED, GREEN, BLUE, BLUE], &[RED, GREEN, BLUE, BLUE]];
-        let b: Pix = &[&[RED, GREEN, BLUE]];
+        let a = gen_base(4, 2);
+        let b: Pix = &[&[R, G, B]];
 
-        let pixels = diff(gen_img(a), gen_img(b));
+        let pixels = diff(a, gen_img(b));
 
-        // expected
-        let expected: Pix = &[&[WHITE, WHITE, WHITE, RED], &[RED, RED, RED, RED]];
+        let expected: Pix = &[&[W, W, W, R], &[R, R, R, R]];
 
         assert_eq!(gen_img(expected), pixels);
     }
 
     #[test]
     fn size_and_different() {
-        let a: Pix = &[
-            &[RED, GREEN, BLUE],
-            &[RED, GREEN, BLUE],
-            &[RED, GREEN, BLUE],
-        ];
-        let b: Pix = &[&[BLUE, GREEN], &[RED, GREEN]];
+        let a = gen_base(3, 3);
+        let b: Pix = &[&[B, G], &[R, G]];
 
-        let pixels = diff(gen_img(a), gen_img(b));
+        let pixels = diff(a, gen_img(b));
 
-        // expected
-        let expected: Pix = &[&[RED, WHITE, RED], &[WHITE, WHITE, RED], &[RED, RED, RED]];
+        let expected: Pix = &[&[R, W, R], &[W, W, R], &[R, R, R]];
 
         assert_eq!(gen_img(expected).into_vec(), pixels.into_vec());
     }
