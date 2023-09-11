@@ -1,46 +1,61 @@
-use image::{ImageBuffer, Rgb, RgbImage};
+use image::{DynamicImage, ImageBuffer, Rgba, RgbaImage};
 
-pub fn diff(a: RgbImage, b: RgbImage) -> RgbImage {
-    let size_a = a.dimensions();
-    let size_b = b.dimensions();
+pub fn compare(a: DynamicImage, b: DynamicImage) -> RgbaImage {
+    if a == b {
+        return a.into_rgba8();
+    }
 
-    let mut c: RgbImage = if size_a != size_b {
-        let (x, y) = size_a.max(size_b);
+    let a = a.into_rgba8();
+    let b = b.into_rgba8();
 
-        ImageBuffer::from_fn(x, y, |x, y| {
-            // Fill excess size with red pixels
-            if x >= size_a.0 || y >= size_a.1 || x >= size_b.0 || y >= size_b.1 {
-                Rgb([255, 0, 0])
-            } else {
-                Rgb([255, 255, 255])
-            }
-        })
+    let (a, b) = if a.dimensions() != b.dimensions() {
+        let width = a.width().max(b.width());
+        let height = a.height().max(b.height());
+
+        let a = resize(&a, width, height);
+        let b = resize(&b, width, height);
+        (a, b)
     } else {
-        ImageBuffer::from_pixel(size_a.0, size_a.1, Rgb([255, 255, 255]))
+        (a, b)
     };
+
+    diff(a, b)
+}
+
+fn resize(img: &RgbaImage, x: u32, y: u32) -> RgbaImage {
+    let mut resized: RgbaImage = ImageBuffer::new(x, y);
+    image::imageops::overlay(&mut resized, img, 0, 0);
+    resized
+}
+
+fn diff(a: RgbaImage, b: RgbaImage) -> RgbaImage {
+    let mut c = ImageBuffer::new(a.width(), a.height());
 
     a.enumerate_pixels()
         .zip(b.enumerate_pixels())
         .filter_map(|((xa, ya, a), (xb, yb, b))| {
             (xa == xb && ya == yb && a != b).then_some((xa, ya))
         })
-        .for_each(|(x, y)| c.put_pixel(x, y, Rgb([255, 0, 0])));
+        .for_each(|(x, y)| c.put_pixel(x, y, Rgba([255, 0, 0, 55])));
 
-    c
+    let mut a = a.clone();
+
+    image::imageops::overlay(&mut a, &c, 0, 0);
+
+    a
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    type Pix = &'static [&'static [image::Rgb<u8>]];
+    type Pix<'a> = &'a [&'a [image::Rgba<u8>]];
 
-    const W: Rgb<u8> = Rgb([255, 255, 255]);
-    const R: Rgb<u8> = Rgb([255, 0, 0]);
-    const G: Rgb<u8> = Rgb([0, 255, 0]);
-    const B: Rgb<u8> = Rgb([0, 0, 255]);
+    const R: Rgba<u8> = Rgba([255, 0, 0, 255]);
+    const G: Rgba<u8> = Rgba([0, 255, 0, 255]);
+    const B: Rgba<u8> = Rgba([0, 0, 255, 255]);
 
-    const BASE_PATTERN: [Rgb<u8>; 3] = [R, G, B];
+    const BASE_PATTERN: [Rgba<u8>; 3] = [R, G, B];
 
     /// Give a size, generate an image by cycling through an `[R, G, B]` array
     ///
@@ -53,16 +68,16 @@ mod tests {
     /// R G B
     /// R G B
     /// ```
-    fn gen_base(x: u32, y: u32) -> RgbImage {
+    fn gen_base(x: u32, y: u32) -> DynamicImage {
         let mut pixels = BASE_PATTERN.iter().cycle();
 
-        ImageBuffer::from_fn(x, y, |_, _| *pixels.next().unwrap())
+        ImageBuffer::from_fn(x, y, |_, _| *pixels.next().unwrap()).into()
     }
 
-    fn gen_img(pixels: Pix) -> RgbImage {
+    fn gen_img(pixels: Pix) -> RgbaImage {
         let (x, y) = (pixels[0].len() as u32, pixels.len() as u32);
 
-        ImageBuffer::from_fn(x, y, |x, y| pixels[y as usize][x as usize])
+        ImageBuffer::from_fn(x, y, |x, y| pixels[y as usize][x as usize]).into()
     }
 
     #[test]
@@ -70,9 +85,9 @@ mod tests {
         let a = gen_base(3, 1);
         let b = gen_base(3, 1);
 
-        let pixels = diff(a, b);
+        let pixels = compare(a, b);
 
-        let expected: Pix = &[&[W, W, W]];
+        let expected: Pix = &[&[R, G, B]];
 
         assert_eq!(gen_img(expected), pixels);
     }
@@ -82,9 +97,9 @@ mod tests {
         let a = gen_base(3, 1);
         let b: Pix = &[&[G, G, B]];
 
-        let pixels = diff(a, gen_img(b));
+        let pixels = compare(a, gen_img(b).into());
 
-        let expected: Pix = &[&[R, W, W]];
+        let expected: Pix = &[&[R, G, B]];
 
         assert_eq!(gen_img(expected), pixels);
     }
@@ -94,9 +109,9 @@ mod tests {
         let a = gen_base(3, 1);
         let b: Pix = &[&[R, G, G]];
 
-        let pixels = diff(a, gen_img(b));
+        let pixels = compare(a, gen_img(b).into());
 
-        let expected: Pix = &[&[W, W, R]];
+        let expected: Pix = &[&[R, G, R]];
 
         assert_eq!(gen_img(expected), pixels);
     }
@@ -106,9 +121,9 @@ mod tests {
         let a = gen_base(3, 1);
         let b: Pix = &[&[R, G, B, B]];
 
-        let pixels = diff(a, gen_img(b));
+        let pixels = compare(a, gen_img(b).into());
 
-        let expected: Pix = &[&[W, W, W, R]];
+        let expected: Pix = &[&[R, G, B, R]];
 
         assert_eq!(gen_img(expected), pixels);
     }
@@ -118,9 +133,9 @@ mod tests {
         let a = gen_base(3, 1);
         let b: Pix = &[&[R, G, B], &[R, G, B]];
 
-        let pixels = diff(a, gen_img(b));
+        let pixels = compare(a, gen_img(b).into());
 
-        let expected: Pix = &[&[W, W, W], &[R, R, R]];
+        let expected: Pix = &[&[R, G, B], &[R, R, R]];
 
         assert_eq!(gen_img(expected), pixels);
     }
@@ -130,9 +145,9 @@ mod tests {
         let a = gen_base(3, 1);
         let b: Pix = &[&[R, G, B, B], &[R, G, B, B]];
 
-        let pixels = diff(a, gen_img(b));
+        let pixels = compare(a, gen_img(b).into());
 
-        let expected: Pix = &[&[W, W, W, R], &[R, R, R, R]];
+        let expected: Pix = &[&[R, G, B, R], &[R, R, R, R]];
 
         assert_eq!(gen_img(expected), pixels);
     }
@@ -142,9 +157,21 @@ mod tests {
         let a = gen_base(4, 1);
         let b: Pix = &[&[R, G, B]];
 
-        let pixels = diff(a, gen_img(b));
+        let pixels = compare(a, gen_img(b).into());
 
-        let expected: Pix = &[&[W, W, W, R]];
+        let expected: Pix = &[&[R, G, B, R]];
+
+        assert_eq!(gen_img(expected), pixels);
+    }
+
+    #[test]
+    fn a_x_bigger_and_diff_content() {
+        let a = gen_base(4, 1);
+        let b: Pix = &[&[R, B, B]];
+
+        let pixels = compare(a, gen_img(b).into());
+
+        let expected: Pix = &[&[R, R, B, R]];
 
         assert_eq!(gen_img(expected), pixels);
     }
@@ -154,9 +181,21 @@ mod tests {
         let a = gen_base(3, 2);
         let b: Pix = &[&[R, G, B]];
 
-        let pixels = diff(a, gen_img(b));
+        let pixels = compare(a, gen_img(b).into());
 
-        let expected: Pix = &[&[W, W, W], &[R, R, R]];
+        let expected: Pix = &[&[R, G, B], &[R, R, R]];
+
+        assert_eq!(gen_img(expected), pixels);
+    }
+
+    #[test]
+    fn a_y_bigger_and_diff_content() {
+        let a = gen_base(3, 2);
+        let b: Pix = &[&[R, B, B]];
+
+        let pixels = compare(a, gen_img(b).into());
+
+        let expected: Pix = &[&[R, R, B], &[R, R, R]];
 
         assert_eq!(gen_img(expected), pixels);
     }
@@ -166,21 +205,28 @@ mod tests {
         let a = gen_base(4, 2);
         let b: Pix = &[&[R, G, B]];
 
-        let pixels = diff(a, gen_img(b));
+        let pixels = compare(a, gen_img(b).into());
 
-        let expected: Pix = &[&[W, W, W, R], &[R, R, R, R]];
+        let expected: Pix = &[&[R, G, B, R], &[R, R, R, R]];
 
         assert_eq!(gen_img(expected), pixels);
     }
 
     #[test]
-    fn size_and_different() {
-        let a = gen_base(3, 3);
+    fn different_size_and_content() {
+        let a = gen_base(6, 6);
         let b: Pix = &[&[B, G], &[R, G]];
 
-        let pixels = diff(a, gen_img(b));
+        let pixels = compare(a, gen_img(b).into());
 
-        let expected: Pix = &[&[R, W, R], &[W, W, R], &[R, R, R]];
+        let expected: Pix = &[
+            &[R, G, R, R, R, R],
+            &[R, G, R, R, R, R],
+            &[R, R, R, R, R, R],
+            &[R, R, R, R, R, R],
+            &[R, R, R, R, R, R],
+            &[R, R, R, R, R, R],
+        ];
 
         assert_eq!(gen_img(expected).into_vec(), pixels.into_vec());
     }

@@ -15,6 +15,8 @@ hyperfine \
   --setup "cargo b -r" \
   --prepare "rm $cpath || true" \
   "./target/release/imgdiff $apath $bpath $cpath" \
+  --prepare "rm $cpath || true" \
+  "pixelmatch $apath $bpath $cpath 0" \
+  --prepare "rm $cpath || true" \
+  "gm compare -file $cpath $apath $bpath" \
   --cleanup "rm $cpath"
-  # --prepare "rm $cpath || true" \
-  # "pixelmatch $apath $bpath $cpath 0" \

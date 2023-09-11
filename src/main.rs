@@ -38,7 +38,7 @@ fn main() {
     let img_b = image::open(Path::new(&file_b)).unwrap();
 
     let timer = Instant::now();
-    let img_c = imgdiff::diff(img_a.into_rgb8(), img_b.into_rgb8());
+    let img_c = imgdiff::compare(img_a, img_b);
     println!("Matched in: {}", Elapsed::from(&timer));
 
     let output_path = Path::new(&output_path);
