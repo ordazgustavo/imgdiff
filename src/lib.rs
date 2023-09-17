@@ -1,25 +1,48 @@
+use std::path::Path;
+
 use image::{DynamicImage, ImageBuffer, Rgba, RgbaImage};
 
-pub fn compare(a: DynamicImage, b: DynamicImage) -> RgbaImage {
-    if a == b {
-        return a.into_rgba8();
+/// Takes two images and computes the difference pixel by pixel.
+/// The result is a new image using the `reference` image as
+/// the base and a color overlay with the difference from the
+/// `current` image.
+///
+/// Returns `None` if the images are equal
+pub fn compare<P>(reference: P, current: P) -> Option<DynamicImage>
+where
+    P: AsRef<Path>,
+{
+    let reference = image::open(reference).unwrap();
+    let current = image::open(current).unwrap();
+
+    if reference == current {
+        return None;
     }
 
-    let a = a.into_rgba8();
-    let b = b.into_rgba8();
+    let (reference, current) = adjust_dymensions(reference, current);
 
-    let (a, b) = if a.dimensions() != b.dimensions() {
-        let width = a.width().max(b.width());
-        let height = a.height().max(b.height());
+    Some(diff(reference, current).into())
+}
 
-        let a = resize(&a, width, height);
-        let b = resize(&b, width, height);
-        (a, b)
+pub(crate) fn adjust_dymensions(
+    reference: DynamicImage,
+    current: DynamicImage,
+) -> (RgbaImage, RgbaImage) {
+    let reference = reference.into_rgba8();
+    let current = current.into_rgba8();
+
+    let (reference, current) = if reference.dimensions() != current.dimensions() {
+        let width = reference.width().max(current.width());
+        let height = reference.height().max(current.height());
+
+        let r = resize(&reference, width, height);
+        let c = resize(&current, width, height);
+        (r, c)
     } else {
-        (a, b)
+        (reference, current)
     };
 
-    diff(a, b)
+    (reference, current)
 }
 
 fn resize(img: &RgbaImage, x: u32, y: u32) -> RgbaImage {
@@ -28,25 +51,30 @@ fn resize(img: &RgbaImage, x: u32, y: u32) -> RgbaImage {
     resized
 }
 
-fn diff(a: RgbaImage, b: RgbaImage) -> RgbaImage {
-    let mut c = ImageBuffer::new(a.width(), a.height());
+pub(crate) const OVERLAY_COLOR: Rgba<u8> = Rgba([255, 0, 0, 55]);
 
-    a.enumerate_pixels()
-        .zip(b.enumerate_pixels())
-        .filter_map(|((xa, ya, a), (xb, yb, b))| {
-            (xa == xb && ya == yb && a != b).then_some((xa, ya))
+pub(crate) fn diff(reference: RgbaImage, current: RgbaImage) -> RgbaImage {
+    let mut c = ImageBuffer::new(reference.width(), reference.height());
+
+    reference
+        .enumerate_pixels()
+        .zip(current.enumerate_pixels())
+        .filter_map(|((xr, yr, r), (xc, yc, c))| {
+            (xr == xc && yr == yc && r != c).then_some((xr, yr))
         })
-        .for_each(|(x, y)| c.put_pixel(x, y, Rgba([255, 0, 0, 55])));
+        .for_each(|(x, y)| c.put_pixel(x, y, OVERLAY_COLOR));
 
-    let mut a = a.clone();
+    let mut result = reference.clone();
 
-    image::imageops::overlay(&mut a, &c, 0, 0);
+    image::imageops::overlay(&mut result, &c, 0, 0);
 
-    a
+    result
 }
 
 #[cfg(test)]
 mod tests {
+    use pretty_assertions::assert_eq;
+
     use super::*;
 
     type Pix<'a> = &'a [&'a [image::Rgba<u8>]];
@@ -54,6 +82,8 @@ mod tests {
     const R: Rgba<u8> = Rgba([255, 0, 0, 255]);
     const G: Rgba<u8> = Rgba([0, 255, 0, 255]);
     const B: Rgba<u8> = Rgba([0, 0, 255, 255]);
+    const T: Rgba<u8> = Rgba([0, 0, 0, 0]);
+    const O: Rgba<u8> = OVERLAY_COLOR;
 
     const BASE_PATTERN: [Rgba<u8>; 3] = [R, G, B];
 
@@ -74,10 +104,20 @@ mod tests {
         ImageBuffer::from_fn(x, y, |_, _| *pixels.next().unwrap()).into()
     }
 
-    fn gen_img(pixels: Pix) -> RgbaImage {
+    fn gen_img(pixels: Pix) -> DynamicImage {
         let (x, y) = (pixels[0].len() as u32, pixels.len() as u32);
 
         ImageBuffer::from_fn(x, y, |x, y| pixels[y as usize][x as usize]).into()
+    }
+
+    fn compare(reference: DynamicImage, current: DynamicImage) -> DynamicImage {
+        if reference == current {
+            return reference;
+        }
+
+        let (reference, current) = adjust_dymensions(reference, current);
+
+        diff(reference, current).into()
     }
 
     #[test]
@@ -85,149 +125,178 @@ mod tests {
         let a = gen_base(3, 1);
         let b = gen_base(3, 1);
 
-        let pixels = compare(a, b);
+        let pixels = compare(a.clone(), b);
 
-        let expected: Pix = &[&[R, G, B]];
-
-        assert_eq!(gen_img(expected), pixels);
+        assert_eq!(a, pixels);
     }
 
     #[test]
-    fn just_one_pixel() {
+    fn first_pixel() {
         let a = gen_base(3, 1);
-        let b: Pix = &[&[G, G, B]];
+        let b = gen_img(&[&[G, G, B]]);
 
-        let pixels = compare(a, gen_img(b).into());
+        let pixels = compare(a.clone(), b);
 
-        let expected: Pix = &[&[R, G, B]];
+        let overlay = gen_img(&[&[OVERLAY_COLOR, T, T]]);
+        let mut expected = a;
+        image::imageops::overlay(&mut expected, &overlay, 0, 0);
 
-        assert_eq!(gen_img(expected), pixels);
+        assert_eq!(expected, pixels);
     }
 
     #[test]
-    fn last_two_pixels() {
+    fn last_pixel() {
         let a = gen_base(3, 1);
-        let b: Pix = &[&[R, G, G]];
+        let b = gen_img(&[&[R, G, G]]);
 
-        let pixels = compare(a, gen_img(b).into());
+        let diff = compare(a.clone(), b);
 
-        let expected: Pix = &[&[R, G, R]];
+        let overlay = gen_img(&[&[T, T, OVERLAY_COLOR]]);
+        let mut expected = a;
+        image::imageops::overlay(&mut expected, &overlay, 0, 0);
 
-        assert_eq!(gen_img(expected), pixels);
+        assert_eq!(expected, diff);
     }
 
     #[test]
     fn b_x_bigger() {
         let a = gen_base(3, 1);
-        let b: Pix = &[&[R, G, B, B]];
+        let b = gen_img(&[&[R, G, B, B]]);
 
-        let pixels = compare(a, gen_img(b).into());
+        let diff = compare(a, b);
 
-        let expected: Pix = &[&[R, G, B, R]];
+        let overlay = gen_img(&[&[T, T, T, OVERLAY_COLOR]]);
+        let mut expected = gen_img(&[&[R, G, B, T]]);
+        image::imageops::overlay(&mut expected, &overlay, 0, 0);
 
-        assert_eq!(gen_img(expected), pixels);
+        assert_eq!(expected, diff);
     }
 
     #[test]
     fn b_y_bigger() {
         let a = gen_base(3, 1);
-        let b: Pix = &[&[R, G, B], &[R, G, B]];
+        let b = gen_img(&[&[R, G, B], &[R, G, B]]);
 
-        let pixels = compare(a, gen_img(b).into());
+        let diff = compare(a, b);
 
-        let expected: Pix = &[&[R, G, B], &[R, R, R]];
+        let overlay = gen_img(&[&[T, T, T], &[OVERLAY_COLOR, OVERLAY_COLOR, OVERLAY_COLOR]]);
+        let mut expected = gen_img(&[&[R, G, B], &[T, T, T]]);
+        image::imageops::overlay(&mut expected, &overlay, 0, 0);
 
-        assert_eq!(gen_img(expected), pixels);
+        assert_eq!(expected, diff);
     }
 
     #[test]
     fn b_xy_bigger() {
         let a = gen_base(3, 1);
-        let b: Pix = &[&[R, G, B, B], &[R, G, B, B]];
+        let b = gen_img(&[&[R, G, B, B], &[R, G, B, B]]);
 
-        let pixels = compare(a, gen_img(b).into());
+        let pixels = compare(a, b);
 
-        let expected: Pix = &[&[R, G, B, R], &[R, R, R, R]];
+        let overlay = gen_img(&[
+            &[T, T, T, OVERLAY_COLOR],
+            &[OVERLAY_COLOR, OVERLAY_COLOR, OVERLAY_COLOR, OVERLAY_COLOR],
+        ]);
+        let mut expected = gen_img(&[&[R, G, B, T], &[T, T, T, T]]);
+        image::imageops::overlay(&mut expected, &overlay, 0, 0);
 
-        assert_eq!(gen_img(expected), pixels);
+        assert_eq!(expected, pixels);
     }
 
     #[test]
     fn a_x_bigger() {
         let a = gen_base(4, 1);
-        let b: Pix = &[&[R, G, B]];
+        let b = gen_img(&[&[R, G, B]]);
 
-        let pixels = compare(a, gen_img(b).into());
+        let diff = compare(a.clone(), b);
 
-        let expected: Pix = &[&[R, G, B, R]];
+        let overlay = gen_img(&[&[T, T, T, OVERLAY_COLOR]]);
+        let mut expected = a;
+        image::imageops::overlay(&mut expected, &overlay, 0, 0);
 
-        assert_eq!(gen_img(expected), pixels);
+        assert_eq!(expected, diff);
     }
 
     #[test]
     fn a_x_bigger_and_diff_content() {
         let a = gen_base(4, 1);
-        let b: Pix = &[&[R, B, B]];
+        let b = gen_img(&[&[R, B, B]]);
 
-        let pixels = compare(a, gen_img(b).into());
+        let diff = compare(a.clone(), b);
 
-        let expected: Pix = &[&[R, R, B, R]];
+        let overlay = gen_img(&[&[T, OVERLAY_COLOR, T, OVERLAY_COLOR]]);
+        let mut expected = a;
+        image::imageops::overlay(&mut expected, &overlay, 0, 0);
 
-        assert_eq!(gen_img(expected), pixels);
+        assert_eq!(expected, diff);
     }
 
     #[test]
     fn a_y_bigger() {
         let a = gen_base(3, 2);
-        let b: Pix = &[&[R, G, B]];
+        let b = gen_img(&[&[R, G, B]]);
 
-        let pixels = compare(a, gen_img(b).into());
+        let diff = compare(a.clone(), b);
 
-        let expected: Pix = &[&[R, G, B], &[R, R, R]];
+        let overlay = gen_img(&[&[R, G, B], &[OVERLAY_COLOR, OVERLAY_COLOR, OVERLAY_COLOR]]);
+        let mut expected = a;
+        image::imageops::overlay(&mut expected, &overlay, 0, 0);
 
-        assert_eq!(gen_img(expected), pixels);
+        assert_eq!(expected, diff);
     }
 
     #[test]
     fn a_y_bigger_and_diff_content() {
         let a = gen_base(3, 2);
-        let b: Pix = &[&[R, B, B]];
+        let b = gen_img(&[&[R, B, B]]);
 
-        let pixels = compare(a, gen_img(b).into());
+        let diff = compare(a.clone(), b);
 
-        let expected: Pix = &[&[R, R, B], &[R, R, R]];
+        let overlay = gen_img(&[
+            &[T, OVERLAY_COLOR, T],
+            &[OVERLAY_COLOR, OVERLAY_COLOR, OVERLAY_COLOR],
+        ]);
+        let mut expected = a;
+        image::imageops::overlay(&mut expected, &overlay, 0, 0);
 
-        assert_eq!(gen_img(expected), pixels);
+        assert_eq!(expected, diff);
     }
 
     #[test]
     fn a_xy_bigger() {
         let a = gen_base(4, 2);
-        let b: Pix = &[&[R, G, B]];
+        let b = gen_img(&[&[R, G, B]]);
 
-        let pixels = compare(a, gen_img(b).into());
+        let diff = compare(a.clone(), b);
 
-        let expected: Pix = &[&[R, G, B, R], &[R, R, R, R]];
+        let overlay = gen_img(&[
+            &[T, T, T, OVERLAY_COLOR],
+            &[OVERLAY_COLOR, OVERLAY_COLOR, OVERLAY_COLOR, OVERLAY_COLOR],
+        ]);
+        let mut expected = a;
+        image::imageops::overlay(&mut expected, &overlay, 0, 0);
 
-        assert_eq!(gen_img(expected), pixels);
+        assert_eq!(expected, diff);
     }
 
     #[test]
     fn different_size_and_content() {
         let a = gen_base(6, 6);
-        let b: Pix = &[&[B, G], &[R, G]];
+        let b = gen_img(&[&[B, G], &[R, G]]);
 
-        let pixels = compare(a, gen_img(b).into());
+        let diff = compare(a.clone(), b);
 
-        let expected: Pix = &[
-            &[R, G, R, R, R, R],
-            &[R, G, R, R, R, R],
-            &[R, R, R, R, R, R],
-            &[R, R, R, R, R, R],
-            &[R, R, R, R, R, R],
-            &[R, R, R, R, R, R],
-        ];
+        let overlay = gen_img(&[
+            &[O, T, O, O, O, O],
+            &[T, T, O, O, O, O],
+            &[O, O, O, O, O, O],
+            &[O, O, O, O, O, O],
+            &[O, O, O, O, O, O],
+            &[O, O, O, O, O, O],
+        ]);
+        let mut expected = a;
+        image::imageops::overlay(&mut expected, &overlay, 0, 0);
 
-        assert_eq!(gen_img(expected).into_vec(), pixels.into_vec());
+        assert_eq!(expected, diff);
     }
 }

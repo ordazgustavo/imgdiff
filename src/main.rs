@@ -1,8 +1,10 @@
 use std::{
     fmt,
-    path::Path,
+    path::{Path, PathBuf},
     time::{Duration, Instant},
 };
+
+use argh::FromArgs;
 
 struct Elapsed(Duration);
 
@@ -24,24 +26,50 @@ impl fmt::Display for Elapsed {
     }
 }
 
+#[derive(FromArgs)]
+/// Compare two images and place the difference in the <out> path.
+/// If the images are equal, no image will be saved.
+struct Args {
+    #[argh(positional)]
+    /// path to the reference image
+    reference: PathBuf,
+    #[argh(positional)]
+    /// path to the current image
+    current: PathBuf,
+    #[argh(positional)]
+    /// path to put the resulting image
+    out: PathBuf,
+}
+
 fn main() {
-    let args = std::env::args();
-    let mut args = args.skip(1);
+    // let output_path = Path::new("assets/a.png");
+    // let a = gen_base([R, G, B], 3840, 2160);
+    // a.save(output_path).unwrap();
 
-    let (file_a, file_b, output_path) = (
-        args.next().expect("Expected argument"),
-        args.next().expect("Expected argument"),
-        args.next().expect("Expected argument"),
-    );
+    // let output_path = Path::new("assets/b.png");
+    // let a = gen_base([B, G, R], 3840, 2160);
+    // a.save(output_path).unwrap();
 
-    let img_a = image::open(Path::new(&file_a)).unwrap();
-    let img_b = image::open(Path::new(&file_b)).unwrap();
+    let Args {
+        reference,
+        current,
+        out,
+    } = argh::from_env::<Args>();
 
     let timer = Instant::now();
-    let img_c = imgdiff::compare(img_a, img_b);
+
+    let result = imgdiff::compare(reference, current);
+
     println!("Matched in: {}", Elapsed::from(&timer));
 
-    let output_path = Path::new(&output_path);
+    match result {
+        None => {
+            println!("Both images are equal");
+        }
+        Some(result) => {
+            let output_path = Path::new(&out);
 
-    img_c.save(output_path).unwrap();
+            result.save(output_path).unwrap();
+        }
+    }
 }

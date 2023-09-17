@@ -1,9 +1,15 @@
 [package]
 name = "imgdiff"
 version = "0.1.0"
+authors = ["Gustavo Ordaz <ordazsgustavo@gmail.com>"]
+categories = ["images", "diffing"]
+description = "A command-line and library for comparing two images"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+license = "MIT OR Apache-2.0"
 
 [dependencies]
-image = "0.24.7"
+argh = "0.1.12"
+image = { version = "0.24.7", default-features = false,  features = ["png"] }
+
+[dev-dependencies]
+pretty_assertions = "1.4.0"
