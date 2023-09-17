@@ -4,8 +4,10 @@ version = "0.1.0"
 authors = ["Gustavo Ordaz <ordazsgustavo@gmail.com>"]
 categories = ["images", "diffing"]
 description = "A command-line and library for comparing two images"
+repository = "https://github.com/ordazgustavo/imgdiff"
 edition = "2021"
 license = "MIT OR Apache-2.0"
+exclude = ["assets/*", "bench.sh", ".github"]
 
 [dependencies]
 argh = "0.1.12"
