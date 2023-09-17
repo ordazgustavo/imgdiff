@@ -2,7 +2,7 @@
 name = "imgdiff"
 version = "0.1.0"
 authors = ["Gustavo Ordaz <ordazsgustavo@gmail.com>"]
-categories = ["images", "diffing"]
+categories = ["multimedia::images", "command-line-utilities"]
 description = "A command-line and library for comparing two images"
 repository = "https://github.com/ordazgustavo/imgdiff"
 edition = "2021"
