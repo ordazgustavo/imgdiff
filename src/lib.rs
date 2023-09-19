@@ -3,11 +3,11 @@ use std::path::Path;
 use image::{DynamicImage, ImageBuffer, ImageResult, Rgba, RgbaImage};
 
 /// Takes two images and computes the difference pixel by pixel.
-/// The result is a new image using the `reference` image as
-/// the base and a color overlay with the difference from the
-/// `current` image.
 ///
-/// Returns `None` if the images are equal
+/// The result is a new image using the `reference` image as the base and a color overlay with the
+/// difference from the `current` image.
+///
+/// Returns the reference image if both images are equal.
 pub fn compare<P>(reference: P, current: P) -> ImageResult<DynamicImage>
 where
     P: AsRef<Path>,
@@ -28,6 +28,8 @@ pub(crate) fn cmp(reference: DynamicImage, current: DynamicImage) -> ImageResult
     Ok(diff(reference, current).into())
 }
 
+/// If the provided images dimensions are different, fill the either or both (of both images, if
+/// needed) axis with transparent pixels in order to be able to compare them pixel by pixel
 fn adjust_dymensions(reference: DynamicImage, current: DynamicImage) -> (RgbaImage, RgbaImage) {
     let reference = reference.into_rgba8();
     let current = current.into_rgba8();
@@ -60,9 +62,7 @@ fn diff(reference: RgbaImage, current: RgbaImage) -> RgbaImage {
     reference
         .enumerate_pixels()
         .zip(current.enumerate_pixels())
-        .filter_map(|((xr, yr, r), (xc, yc, c))| {
-            (xr == xc && yr == yc && r != c).then_some((xr, yr))
-        })
+        .filter_map(|((xr, yr, r), (_, _, c))| (r != c).then_some((xr, yr)))
         .for_each(|(x, y)| c.put_pixel(x, y, OVERLAY_COLOR));
 
     let mut result = reference.clone();
