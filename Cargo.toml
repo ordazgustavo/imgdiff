@@ -1,6 +1,6 @@
 [package]
 name = "imgdiff"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Gustavo Ordaz <ordazsgustavo@gmail.com>"]
 categories = ["multimedia::images", "command-line-utilities"]
 description = "A command-line and library for comparing two images"
