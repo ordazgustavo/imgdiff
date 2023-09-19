@@ -42,14 +42,6 @@ struct Args {
 }
 
 fn main() {
-    // let output_path = Path::new("assets/a.png");
-    // let a = gen_base([R, G, B], 3840, 2160);
-    // a.save(output_path).unwrap();
-
-    // let output_path = Path::new("assets/b.png");
-    // let a = gen_base([B, G, R], 3840, 2160);
-    // a.save(output_path).unwrap();
-
     let Args {
         reference,
         current,
@@ -60,16 +52,18 @@ fn main() {
 
     let result = imgdiff::compare(reference, current);
 
-    println!("Matched in: {}", Elapsed::from(&timer));
+    let elapsed = Elapsed::from(&timer);
 
     match result {
-        None => {
-            println!("Both images are equal");
-        }
-        Some(result) => {
+        Err(err) => eprintln!("{err}"),
+        Ok(result) => {
             let output_path = Path::new(&out);
 
-            result.save(output_path).unwrap();
+            if let Err(err) = result.save(output_path) {
+                eprintln!("{err}");
+            } else {
+                println!("Matched in: {elapsed}");
+            }
         }
     }
 }

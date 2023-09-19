@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use image::{DynamicImage, ImageBuffer, Rgba, RgbaImage};
+use image::{DynamicImage, ImageBuffer, ImageResult, Rgba, RgbaImage};
 
 /// Takes two images and computes the difference pixel by pixel.
 /// The result is a new image using the `reference` image as
@@ -8,26 +8,27 @@ use image::{DynamicImage, ImageBuffer, Rgba, RgbaImage};
 /// `current` image.
 ///
 /// Returns `None` if the images are equal
-pub fn compare<P>(reference: P, current: P) -> Option<DynamicImage>
+pub fn compare<P>(reference: P, current: P) -> ImageResult<DynamicImage>
 where
     P: AsRef<Path>,
 {
-    let reference = image::open(reference).unwrap();
-    let current = image::open(current).unwrap();
+    let reference = image::open(reference)?;
+    let current = image::open(current)?;
 
+    cmp(reference, current)
+}
+
+pub(crate) fn cmp(reference: DynamicImage, current: DynamicImage) -> ImageResult<DynamicImage> {
     if reference == current {
-        return None;
+        return Ok(reference);
     }
 
     let (reference, current) = adjust_dymensions(reference, current);
 
-    Some(diff(reference, current).into())
+    Ok(diff(reference, current).into())
 }
 
-pub(crate) fn adjust_dymensions(
-    reference: DynamicImage,
-    current: DynamicImage,
-) -> (RgbaImage, RgbaImage) {
+fn adjust_dymensions(reference: DynamicImage, current: DynamicImage) -> (RgbaImage, RgbaImage) {
     let reference = reference.into_rgba8();
     let current = current.into_rgba8();
 
@@ -53,7 +54,7 @@ fn resize(img: &RgbaImage, x: u32, y: u32) -> RgbaImage {
 
 pub(crate) const OVERLAY_COLOR: Rgba<u8> = Rgba([255, 0, 0, 55]);
 
-pub(crate) fn diff(reference: RgbaImage, current: RgbaImage) -> RgbaImage {
+fn diff(reference: RgbaImage, current: RgbaImage) -> RgbaImage {
     let mut c = ImageBuffer::new(reference.width(), reference.height());
 
     reference
@@ -110,22 +111,12 @@ mod tests {
         ImageBuffer::from_fn(x, y, |x, y| pixels[y as usize][x as usize]).into()
     }
 
-    fn compare(reference: DynamicImage, current: DynamicImage) -> DynamicImage {
-        if reference == current {
-            return reference;
-        }
-
-        let (reference, current) = adjust_dymensions(reference, current);
-
-        diff(reference, current).into()
-    }
-
     #[test]
     fn are_equal() {
         let a = gen_base(3, 1);
         let b = gen_base(3, 1);
 
-        let pixels = compare(a.clone(), b);
+        let pixels = cmp(a.clone(), b).unwrap();
 
         assert_eq!(a, pixels);
     }
@@ -135,7 +126,7 @@ mod tests {
         let a = gen_base(3, 1);
         let b = gen_img(&[&[G, G, B]]);
 
-        let pixels = compare(a.clone(), b);
+        let pixels = cmp(a.clone(), b).unwrap();
 
         let overlay = gen_img(&[&[OVERLAY_COLOR, T, T]]);
         let mut expected = a;
@@ -149,7 +140,7 @@ mod tests {
         let a = gen_base(3, 1);
         let b = gen_img(&[&[R, G, G]]);
 
-        let diff = compare(a.clone(), b);
+        let diff = cmp(a.clone(), b).unwrap();
 
         let overlay = gen_img(&[&[T, T, OVERLAY_COLOR]]);
         let mut expected = a;
@@ -163,7 +154,7 @@ mod tests {
         let a = gen_base(3, 1);
         let b = gen_img(&[&[R, G, B, B]]);
 
-        let diff = compare(a, b);
+        let diff = cmp(a, b).unwrap();
 
         let overlay = gen_img(&[&[T, T, T, OVERLAY_COLOR]]);
         let mut expected = gen_img(&[&[R, G, B, T]]);
@@ -177,7 +168,7 @@ mod tests {
         let a = gen_base(3, 1);
         let b = gen_img(&[&[R, G, B], &[R, G, B]]);
 
-        let diff = compare(a, b);
+        let diff = cmp(a, b).unwrap();
 
         let overlay = gen_img(&[&[T, T, T], &[OVERLAY_COLOR, OVERLAY_COLOR, OVERLAY_COLOR]]);
         let mut expected = gen_img(&[&[R, G, B], &[T, T, T]]);
@@ -191,7 +182,7 @@ mod tests {
         let a = gen_base(3, 1);
         let b = gen_img(&[&[R, G, B, B], &[R, G, B, B]]);
 
-        let pixels = compare(a, b);
+        let pixels = cmp(a, b).unwrap();
 
         let overlay = gen_img(&[
             &[T, T, T, OVERLAY_COLOR],
@@ -208,7 +199,7 @@ mod tests {
         let a = gen_base(4, 1);
         let b = gen_img(&[&[R, G, B]]);
 
-        let diff = compare(a.clone(), b);
+        let diff = cmp(a.clone(), b).unwrap();
 
         let overlay = gen_img(&[&[T, T, T, OVERLAY_COLOR]]);
         let mut expected = a;
@@ -222,7 +213,7 @@ mod tests {
         let a = gen_base(4, 1);
         let b = gen_img(&[&[R, B, B]]);
 
-        let diff = compare(a.clone(), b);
+        let diff = cmp(a.clone(), b).unwrap();
 
         let overlay = gen_img(&[&[T, OVERLAY_COLOR, T, OVERLAY_COLOR]]);
         let mut expected = a;
@@ -236,7 +227,7 @@ mod tests {
         let a = gen_base(3, 2);
         let b = gen_img(&[&[R, G, B]]);
 
-        let diff = compare(a.clone(), b);
+        let diff = cmp(a.clone(), b).unwrap();
 
         let overlay = gen_img(&[&[R, G, B], &[OVERLAY_COLOR, OVERLAY_COLOR, OVERLAY_COLOR]]);
         let mut expected = a;
@@ -250,7 +241,7 @@ mod tests {
         let a = gen_base(3, 2);
         let b = gen_img(&[&[R, B, B]]);
 
-        let diff = compare(a.clone(), b);
+        let diff = cmp(a.clone(), b).unwrap();
 
         let overlay = gen_img(&[
             &[T, OVERLAY_COLOR, T],
@@ -267,7 +258,7 @@ mod tests {
         let a = gen_base(4, 2);
         let b = gen_img(&[&[R, G, B]]);
 
-        let diff = compare(a.clone(), b);
+        let diff = cmp(a.clone(), b).unwrap();
 
         let overlay = gen_img(&[
             &[T, T, T, OVERLAY_COLOR],
@@ -284,7 +275,7 @@ mod tests {
         let a = gen_base(6, 6);
         let b = gen_img(&[&[B, G], &[R, G]]);
 
-        let diff = compare(a.clone(), b);
+        let diff = cmp(a.clone(), b).unwrap();
 
         let overlay = gen_img(&[
             &[O, T, O, O, O, O],
